@@ -371,9 +371,9 @@ fi
 # ---------------------------------
 # Cleaning Working Directory
 # ---------------------------------
-rm -R "${LOCAL_WORK_DIR}"/*
+rm -rf "${LOCAL_WORK_DIR:?}"/*
 # ---------------------------------
 
 # ---------------------------------
-mv "${FOLDER}"/Scripts/P01_Basecalling.* "${FOLDER}"/Scripts/Sbatch_log/
+mv "${SLURM_SUBMIT_DIR}/P01_Basecalling.${SLURM_JOB_ID}."* "${FOLDER}/Scripts/Sbatch_log/" 2>/dev/null || true
 # ---------------------------------
