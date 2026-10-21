@@ -43,7 +43,7 @@ CUTOFFVCF="5"
 usage() {
    local exit_code="${1:-1}"
    {
-    echo "Usage: sbatch --array=1-x $0 -r RUN -cv CUTOFFVCF [-q QSCORE]"
+    echo "Usage: sbatch --array=1-x $0 -r RUN [-cv CUTOFFVCF] [-q QSCORE]"
 	echo "   -r, --run    Mandatory. Name of run directory"
 	echo "   -q, --qscore Optional. Qscore threshold for reads quality filter [default 15]"
 	echo "   -cv, --cutvcf Optional. DV minimal (reads variants) [default 5]"
@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
     -r|--run) RUN="$2"; shift 2 ;;
 	-q|--qscore) QSCORE="$2"; shift 2 ;;
-	-cv|--vcf) CUTOFFVCF="$2"; shift 2 ;;
+	-cv|--cutvcf) CUTOFFVCF="$2"; shift 2 ;;
 	-h|--help)  usage 0 ;;
     *) 
          echo "Invalid option: $1" >&2
@@ -138,8 +138,8 @@ fastp \
 --average_qual "${QSCORE}" \
 --low_complexity_filter \
 --thread "${THREADS}" \
---html "${SAMPLE}"_ReportFastp.html \
---json "${SAMPLE}"_ReportFastp.json \
+--html "${SAMPLE}_ReportFastp.html" \
+--json "${SAMPLE}_ReportFastp.json" \
 --report_title "$SAMPLE fastq report" \
 --out1 "${SAMPLE}_TrimAdapter_CleanedReads.fastq" 2>&1 | tee "${SAMPLE}_fastp_run${RUNDATE}.log"
 # ---------------------------------
@@ -359,54 +359,42 @@ done
 # ---------------------------------
 # Move outputs files
 # ---------------------------------
-# Cleaned Fastq
 
-mkdir -p "${PATH2}"
+mkdir -p \
+    "${PATH2}" \
+    "${PATH3}/RawReads" "${PATH3}/CleanedReads" "${PATH3}/Fastp" \
+    "${FOLDER}/Mapping/${RUN}" \
+    "${FOLDER}/Coverage/${RUN}" \
+    "${FOLDER}/VCF/${RUN}" \
+    "${FOLDER}/Log/${RUN}_run${RUNDATE}"
+
+# Cleaned Fastq
 
 pigz -f "${SAMPLE}_TrimAdapter_CleanedReads.fastq"
 mv "${SAMPLE}_TrimAdapter_CleanedReads.fastq.gz" "${PATH2}"
 
-# Statistic
-mkdir -p "${PATH3}/RawReads"
+# Reads statistic
+mv "${SAMPLE}_RawReads_Report.txt" "${PATH3}/RawReads/"
 
-mv "${SAMPLE}_RawReads_Report.txt" "${PATH3}"/RawReads/
-
-mkdir -p "${PATH3}/CleanedReads"
-
-mv "${SAMPLE}_TrimAdapter_CleanedReads_Report.txt" "${PATH3}/CleanedReads"
-
-mkdir -p "${FOLDER}/Log/${RUN}_run${RUNDATE}"
+mv "${SAMPLE}_TrimAdapter_CleanedReads_Report.txt" "${PATH3}/CleanedReads/"
+mv "${SAMPLE}_ReportFastp.html" "${SAMPLE}_ReportFastp.json" "${PATH3}/CleanedReads/"
 
 # bam Minimap2
-mkdir -p "${FOLDER}/Mapping/${RUN}"
 
-mv "${SAMPLE}_mapped${REFERENCE}_sorted.bam" "${FOLDER}/Mapping/${RUN}/"
-mv "${SAMPLE}_mapped${REFERENCE}_sorted.bam.bai" "${FOLDER}/Mapping/${RUN}/"
-mv "Coverage_${SAMPLE}_to_${REFERENCE}.txt" "${FOLDER}/Mapping/${RUN}/"
+BAM="${SAMPLE}_mapped${REFNAME}_sorted.bam"
 
-cp "${MAPPING}"/"${REFERENCE}" "${FOLDER}/Mapping/${RUN}/"
+mv "${BAM}" "${BAM}.ai" "MappedReads_${SAMPLE}_to_${RREFNAME}.tsv" "${FOLDER}/Mapping/${RUN}/"
 
 # Coverage
-mkdir -p "${FOLDER}/Coverage/${RUN}"
-
-mv "MappedReads_${SAMPLE}_to_${REFERENCE}.tsv" "${FOLDER}/Mapping/${RUN}/"
-mv "CoverageHist_${SAMPLE}_to_${REFERENCE}.txt" "${FOLDER}/Mapping/${RUN}/"
+mv "CoverageHist_${SAMPLE}_to_${REFNAME}.txt" "${FOLDER}/Coverage/${RUN}/"
 
 # VCF files
-mkdir -p "${FOLDER}/VCF/${RUN}"
-
-mv "${SAMPLE}_sniffles.vcf" "${FOLDER}/VCF/${RUN}"
-mv "${SAMPLE}_cutesv.vcf" "${FOLDER}/VCF/${RUN}"
-mv "${SAMPLE}_vcf_list.txt" "${FOLDER}/VCF/${RUN}"
-mv "${SAMPLE}_vcf_merged.vcf" "${FOLDER}/VCF/${RUN}"
-mv "${SAMPLE}_cutesv_bnd_interchrom.tsv" "${FOLDER}/VCF/${RUN}"
-mv "${SAMPLE}_sniffles_bnd_interchrom.tsv" "${FOLDER}/VCF/${RUN}"
-mv "${SAMPLE}_bnd_concordant.tsv" "${FOLDER}/VCF/${RUN}"
-mv "${SAMPLE}_sniffles_deldup.tsv" "${FOLDER}/VCF/${RUN}"
-mv "${SAMPLE}_cutesv_deldup.tsv" "${FOLDER}/VCF/${RUN}"
+mv "${SAMPLE}_sniffles.vcf" "${SAMPLE}_cutesv.vcf" "${SAMPLE}_vcf_merged.vcf" \
+"${SAMPLE}"_*bnd*.tsv "${SAMPLE}"_*deldup*.tsv "${SAMPLE}_vcf_list.txt" \
+"${FOLDER}/VCF/${RUN}"
 
 # Log files
-mv *.log "${FOLDER}/Log/${RUN}_run${RUNDATE}"
+mv ./*.log "${FOLDER}/Log/${RUN}_run${RUNDATE}"
 # ---------------------------------
 
 # ---------------------------------
@@ -416,5 +404,6 @@ rm -rf "${LOCAL_WORK_DIR:?}"/*
 # ---------------------------------
 
 # ---------------------------------
-mv "${FOLDER}"/Scripts/P02_MappingCNVSV."${SLURM_ARRAY_TASK_ID}".* "${FOLDER}"/Scripts/Sbatch_log
+mv "${SLURM_SUBMIT_DIR}/P02_MappingCNVSV.${SLURM_ARRAY_TASK_ID}.${SLURM_ARRAY_JOB_ID}."* \
+   "${FOLDER}/Scripts/Sbatch_log/" 2>/dev/null || true
 # ---------------------------------
