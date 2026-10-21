@@ -91,7 +91,8 @@ FOLDER/
 ├── Scripts/                                              # PROVIDED: scripts and sample information
 │   ├── P01_Basecalling.sh, P02_MappingCNVSV.sh, P02b_Clair3.sh
 │   ├── Samples_<RUN>.xlsx            # PROVIDED: sample table (Dorado and Guppy)
-│   ├── Sample_sheet_<RUN>.csv        # created by P01 (Dorado); Samples_<RUN>.csv for Guppy
+│   ├── Samples_Dorado_<RUN>.csv      # created by P01 (Dorado sample sheet)
+│   ├── Samples_Guppy_<RUN>.csv       # created by P01 (Guppy barcode-to-sample table)
 │   ├── List_samples_<RUN>.txt        # created by P01: one sample name per line (array index)
 │   └── Sbatch_log/                   # created: SLURM logs
 ├── Dorado_Basecalling/<RUN>/         # P01: uBAM and demultiplexed files (Guppy_Basecalling for Guppy)
@@ -126,7 +127,7 @@ Dorado branch: `dorado basecaller` (no trimming) → `dorado summary` → `dorad
 
 Guppy branch (legacy R9.4.1 runs): basecalling, adapter and barcode trimming and demultiplexing in one step; samples renamed with the barcode-to-sample table derived from `Samples_<RUN>.xlsx`.
 
-Before basecalling, P01 converts and checks `Samples_<RUN>.xlsx` (required columns, duplicated barcodes or aliases, forbidden characters in aliases, kit consistent with `-br`) and stops with an explicit message if something is wrong.
+Before basecalling, P01 converts and checks `Samples_<RUN>.xlsx` into `Samples_Dorado_<RUN>.csv` or `Samples_Guppy_<RUN>.csv` (required columns, duplicated barcodes or aliases, forbidden characters in aliases, kit consistent with `-br`) and stops with an explicit message if something is wrong.
 
 > The Dorado model used here must be recorded: the Clair3 model in P02b has to match it (see notes).
 

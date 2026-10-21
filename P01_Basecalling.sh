@@ -101,7 +101,6 @@ fi
 # Paths
 FOLDER="/dlocal/home/2019013/Data/$GROUP/$PROJECT"
 SCRIPTS="$FOLDER/Scripts"
-PATH1="$FOLDER/Scripts"
 PATH2="$FOLDER/RawReads_Nanopore/$RUN"
 
 if [[ "${BASECALLER}" == "guppy" ]]; then
@@ -116,6 +115,60 @@ RUNDATE="$(date '+%Y-%m-%d')"
 # Threads
 export THREADS="${SLURM_CPUS_PER_TASK}"
 echo "number of threads used ${THREADS}"
+# ---------------------------------
+
+# ---------------------------------
+# Sample table: Excel -> Dorado sample sheet or Guppy barcode table
+# ---------------------------------
+echo "Formatting Exel file for Basecalling"
+
+SAMPLES_SAMPLES_XLSX="${SCRIPTS}/Samples_${RUN}.xlsx"
+SAMPLES_DORADO="${SCRIPTS}/Samples_Dorado_${RUN}.csv"
+SAMPLES_GUPPY="${SCRIPTS}/Samples_Guppy_${RUN}.csv"
+
+[[ -f "$SAMPLES_XLSX" ]] || { echo "ERROR: ${SAMPLES_XLSX} not found" >&2; exit 1; }
+
+module load py_env/miniconda3/25.7.0
+set +u
+eval "$(conda shell.bash hook)"
+set -u
+conda_switch NN_env
+# include:
+# csvtk=0.31.0
+
+# Keep the 5 required columns (by name) and drop rows without alias
+csvtk xlsx2csv "$SAMPLES_XLSX" \
+    | csvtk cut -f flow_cell_id,kit,experiment_id,barcode,alias \
+    | awk -F',' 'NR==1 || $5 !~ /^[[:space:]]*$/' > "$CLEAN"
+
+set +u; conda deactivate; set -u
+
+# --- Checks ---
+[[ "$(tail -n +2 "$CLEAN" | wc -l)" -gt 0 ]] \
+    || { echo "ERROR: no sample with an alias in ${SAMPLES_XLSX}" >&2; exit 1; }
+
+DUP="$(tail -n +2 "$CLEAN" | cut -d',' -f4 | sort | uniq -d)"
+[[ -z "$DUP" ]] || { echo "ERROR: duplicated barcode(s): $DUP" >&2; exit 1; }
+
+DUP="$(tail -n +2 "$CLEAN" | cut -d',' -f5 | sort | uniq -d)"
+[[ -z "$DUP" ]] || { echo "ERROR: duplicated alias(es): $DUP" >&2; exit 1; }
+
+BAD="$(tail -n +2 "$CLEAN" | cut -d',' -f5 | grep -vE '^[A-Za-z0-9._-]+$' || true)"
+[[ -z "$BAD" ]] || { echo "ERROR: invalid alias (use letters, digits, . _ -): $BAD" >&2; exit 1; }
+
+KITS="$(tail -n +2 "$CLEAN" | cut -d',' -f2 | sort -u)"
+[[ "$KITS" == "$BARCODE" ]] \
+    || { echo "ERROR: kit in table (${KITS}) differs from -br (${BARCODE})" >&2; exit 1; }
+
+# --- Format for the chosen basecaller ---
+if [[ "$BASECALLER" == "dorado" ]]; then
+    cp "$CLEAN" "${SAMPLE_DORADO}"
+else
+    tail -n +2 "$CLEAN" | cut -d',' -f4,5 > "${SCRIPTS}/${SAMPLES_GUPPY}"
+    tail -n +2 "$CLEAN" | cut -d',' -f5   > "${SCRIPTS}/List_samples_${RUN}.txt"
+fi
+
+rm -f "$CLEAN"
 # ---------------------------------
 
 # ---------------------------------
@@ -155,13 +208,13 @@ echo "Config/Model ${MODEL} NanoporeKit ${BARCODE} Qscore ${QSCOREBASECALL}"
 for dir in \
     "${BASECALL_DIR}" \
     "${FOLDER}/RawReads_Nanopore/${RUN}" \
-	"${FOLDER}/CleanedReads_Nanopore/${RUN}" \
-	"${FOLDER}/minimap2/${RUN}" \
+    "${FOLDER}/CleanedReads_Nanopore/${RUN}" \
+    "${FOLDER}/minimap2/${RUN}" \
     "${FOLDER}/QC_Stats/${RUN}/PycoQC" \
-	"${FOLDER}/QC_Stats/${RUN}/BUSCO" \
-	"${FOLDER}/QC_Stats/${RUN}/Seqkit" \
-	"${FOLDER}/QC_Stats/${RUN}/RawReads_Nanopore" \
-	"${FOLDER}/QC_Stats/${RUN}/CleanedReads_Nanopore" \
+    "${FOLDER}/QC_Stats/${RUN}/BUSCO" \
+    "${FOLDER}/QC_Stats/${RUN}/Seqkit" \
+    "${FOLDER}/QC_Stats/${RUN}/RawReads_Nanopore" \
+    "${FOLDER}/QC_Stats/${RUN}/CleanedReads_Nanopore" \
     "${FOLDER}/Log/${RUN}_run${RUNDATE}" \
     "${FOLDER}/Scripts/Sbatch_log"
 do
@@ -220,32 +273,12 @@ if [[ "${BASECALLER}" == "guppy" ]]; then
 	fi
     mv demultiplex/ "${BASECALL_DIR}"
     cd "${BASECALL_DIR}"/demultiplex/
-
-    # --- Environments for renaming ---
-    module load py_env/miniconda3/25.7.0
-	set +u
-    eval "$(conda shell.bash hook)"
-    conda activate NN_env
-	set -u
-    # include:
-    # csvtk=0.31.0
-
-    # --- Rename samples using Samples_${RUN}.xlsx ---
-
-    csvtk xlsx2csv "${PATH1}/Samples_${RUN}.xlsx" | tail -n +2 > "${PATH1}/Samples_${RUN}.csv.temp"
     
-    # Remove rows where the second column is empty or contains only whitespace
-    awk -F',' '!(($2 == "" || $2 ~ /^[[:space:]]*$/))' "${PATH1}/Samples_${RUN}.csv.temp" > "${PATH1}/Samples_${RUN}.csv"
-    rm "${PATH1}/Samples_${RUN}.csv.temp"
-    
-    # Remove the first column and save to List_Samples_RUN.txt
-    awk -F',' 'NF > 1 && $2 !~ /^[[:space:]]*$/ { print $2 }' "${PATH1}/Samples_${RUN}.csv" > "${PATH1}/List_samples_${RUN}.txt"
-    
-    cp "${PATH1}/Samples_${RUN}.csv" "${BASECALL_DIR}"/demultiplex/
+    cp "${SAMPLES_GUPPY}" "${BASECALL_DIR}"/demultiplex/
 
     cd "${BASECALL_DIR}"/demultiplex/
 
-    awk -F',' '{ print $1".fastq", $2".fastq" }' "Samples_${RUN}.csv" > OldNewNames.txt
+    awk -F',' '{ print $1".fastq", $2".fastq" }' "Samples_Guppy_${RUN}.csv" > OldNewNames.txt
 
     while read -r old new; do
         mv "$old" "$new"
@@ -257,9 +290,11 @@ if [[ "${BASECALLER}" == "guppy" ]]; then
     pigz -f "${PATH2}"/*.fastq
 
 elif [[ "${BASECALLER}" == "dorado" ]]; then
+
     # =========================================
     # DORADO
     # =========================================
+
     module load bio/dorado/1.2.0 # back to 0.9.6 if needed
 
     echo "Running Basecalling, Demultiplexing and Adapter/barcode trimming using Dorado"
@@ -278,7 +313,7 @@ elif [[ "${BASECALLER}" == "dorado" ]]; then
     dorado demux \
         --kit-name "${BARCODE}" \
         --threads "${THREADS}" \
-        --sample-sheet "${SCRIPTS}"/Sample_sheet_"${RUN}".csv \
+        --sample-sheet "${SAMPLES_DORADO}" \
         --emit-summary \
         --output-dir demultiplex/ "${RUN}".basecalls.bam
 
